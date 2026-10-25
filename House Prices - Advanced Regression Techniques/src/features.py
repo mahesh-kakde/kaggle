@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import skew
+from scipy.special import boxcox1p
 from sklearn.preprocessing import RobustScaler
 
 def engineer_features(train_path: str, test_path: str):
@@ -14,13 +15,6 @@ def engineer_features(train_path: str, test_path: str):
     n_train = len(train_df)
     test_ids = test_df['Id'].values
     y_train = np.log1p(train_df['SalePrice'].values)
-    
-    # rank neighborhoods by training price per square foot
-    train_sf = train_df['TotalBsmtSF'] + train_df['1stFlrSF'] + train_df['2ndFlrSF']
-    neigh_ranks = train_df.groupby('Neighborhood').apply(
-        lambda g: (g['SalePrice'] / (g['TotalBsmtSF'] + g['1stFlrSF'] + g['2ndFlrSF'])).median()
-    ).sort_values()
-    neigh_map = {n: i + 1 for i, n in enumerate(neigh_ranks.index)}
     
     train_features = train_df.drop(columns=['Id', 'SalePrice'])
     test_features = test_df.drop(columns=['Id'])
@@ -81,7 +75,6 @@ def engineer_features(train_path: str, test_path: str):
     df['Fence'] = df['Fence'].map(fence_map).fillna(0).astype(int)
     
     # domain aggregations
-    df['NeighborhoodRank'] = df['Neighborhood'].map(neigh_map).fillna(13.0).astype(float)
     df['TotalSF'] = df['TotalBsmtSF'] + df['1stFlrSF'] + df['2ndFlrSF']
     df['TotalBaths'] = df['FullBath'] + 0.5 * df['HalfBath'] + df['BsmtFullBath'] + 0.5 * df['BsmtHalfBath']
     df['TotalPorchSF'] = df['OpenPorchSF'] + df['EnclosedPorch'] + df['3SsnPorch'] + df['ScreenPorch'] + df['WoodDeckSF']
@@ -102,7 +95,7 @@ def engineer_features(train_path: str, test_path: str):
     skewed_feats = df[num_cols].apply(lambda x: skew(x.dropna())).sort_values(ascending=False)
     high_skew = skewed_feats[abs(skewed_feats) > 0.75].index
     for feat in high_skew:
-        df[feat] = np.log1p(df[feat])
+        df[feat] = boxcox1p(df[feat], 0.15)
         
     # one-hot encode nominal categories
     df = pd.get_dummies(df, drop_first=True, dtype=float)

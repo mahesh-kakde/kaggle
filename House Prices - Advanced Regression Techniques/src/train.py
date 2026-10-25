@@ -74,8 +74,8 @@ def train_and_generate_all(base_dir: str):
         models, X_train_scaled, X_train, X_test_scaled, X_test, y_train, cv
     )
     
-    # 3. optimize ensemble weights
-    ensemble_models = ['ridge', 'lasso', 'elastic', 'svr', 'xgb', 'lgb', 'cat', 'gbr']
+    # 3. optimize ensemble weights with diversity bounds
+    ensemble_models = ['ridge', 'lasso', 'elastic', 'svr', 'k_ridge', 'gbr', 'xgb', 'lgb', 'cat']
     oof_matrix = np.column_stack([oof_preds[k] for k in ensemble_models])
     test_matrix = np.column_stack([test_preds[k] for k in ensemble_models])
     
@@ -83,7 +83,7 @@ def train_and_generate_all(base_dir: str):
         return root_mean_squared_error(y_train, np.dot(oof_matrix, w))
         
     init_weights = np.ones(len(ensemble_models)) / len(ensemble_models)
-    bounds = [(0.0, 1.0)] * len(ensemble_models)
+    bounds = [(0.04, 0.30)] * len(ensemble_models)
     constraints = {'type': 'eq', 'fun': lambda w: sum(w) - 1.0}
     opt_res = minimize(loss_func, init_weights, bounds=bounds, constraints=constraints)
     
