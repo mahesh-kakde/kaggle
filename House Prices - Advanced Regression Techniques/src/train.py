@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import root_mean_squared_error
 
@@ -13,26 +14,35 @@ from diagnostics import (
     plot_feature_importances
 )
 
-def evaluate_models_oof(models: dict, X_scaled: pd.DataFrame, X_raw: pd.DataFrame, y: np.ndarray, cv):
+def evaluate_models_oof(models: dict, X_scaled_tr: pd.DataFrame, X_raw_tr: pd.DataFrame,
+                        X_scaled_te: pd.DataFrame, X_raw_te: pd.DataFrame, y: np.ndarray, cv):
     oof_predictions = {}
+    test_predictions = {}
     metrics_dict = {}
     
-    linear_family = {'ridge', 'lasso', 'elastic', 'k_ridge'}
+    linear_family = {'ridge', 'lasso', 'elastic', 'svr', 'k_ridge'}
+    n_splits = cv.get_n_splits()
     
     for name, model in models.items():
-        inp = X_scaled.values if name in linear_family else X_raw.values
-        oof_pred = np.zeros(len(y))
+        inp_tr = X_scaled_tr.values if name in linear_family else X_raw_tr.values
+        inp_te = X_scaled_te.values if name in linear_family else X_raw_te.values
         
-        for tr, va in cv.split(inp, y):
-            model.fit(inp[tr], y[tr])
-            oof_pred[va] = model.predict(inp[va])
+        oof_pred = np.zeros(len(y))
+        test_pred = np.zeros(len(inp_te))
+        
+        for tr, va in cv.split(inp_tr, y):
+            m = clone(model)
+            m.fit(inp_tr[tr], y[tr])
+            oof_pred[va] = m.predict(inp_tr[va])
+            test_pred += m.predict(inp_te) / n_splits
             
         rmse = root_mean_squared_error(y, oof_pred)
         oof_predictions[name] = oof_pred
+        test_predictions[name] = test_pred
         metrics_dict[name] = rmse
         print(f"model: {name:<12} | 5-fold log-rmse: {rmse:.4f}")
         
-    return oof_predictions, metrics_dict
+    return oof_predictions, test_predictions, metrics_dict
 
 def train_and_generate_all(base_dir: str):
     data_dir = os.path.join(base_dir, "data")
@@ -56,15 +66,18 @@ def train_and_generate_all(base_dir: str):
     
     print(f"features: {len(feature_names)}, train samples: {len(y_train)}, test samples: {len(test_ids)}")
     
-    # 2. cross validation
+    # 2. cross validation and fold inference
     cv = KFold(n_splits=5, shuffle=True, random_state=42)
     models = get_candidate_models()
     
-    oof_preds, metrics_dict = evaluate_models_oof(models, X_train_scaled, X_train, y_train, cv)
+    oof_preds, test_preds, metrics_dict = evaluate_models_oof(
+        models, X_train_scaled, X_train, X_test_scaled, X_test, y_train, cv
+    )
     
     # 3. optimize ensemble weights
-    ensemble_models = ['ridge', 'lasso', 'elastic', 'xgb', 'cat', 'gbr']
+    ensemble_models = ['ridge', 'lasso', 'elastic', 'svr', 'xgb', 'lgb', 'cat', 'gbr']
     oof_matrix = np.column_stack([oof_preds[k] for k in ensemble_models])
+    test_matrix = np.column_stack([test_preds[k] for k in ensemble_models])
     
     def loss_func(w):
         return root_mean_squared_error(y_train, np.dot(oof_matrix, w))
@@ -89,7 +102,7 @@ def train_and_generate_all(base_dir: str):
     
     diag_models = {
         'ridge': models['ridge'],
-        'lasso': models['lasso'],
+        'svr': models['svr'],
         'xgb': models['xgb'],
         'cat': models['cat']
     }
@@ -112,23 +125,8 @@ def train_and_generate_all(base_dir: str):
     
     plot_feature_importances([xgb_imp, cat_imp, gbr_imp], ['xgb', 'cat', 'gbr'], os.path.join(reports_dir, "feature_importances.png"))
     
-    # 5. full training and test prediction
-    test_preds_matrix = []
-    linear_family = {'ridge', 'lasso', 'elastic', 'k_ridge'}
-    
-    for name in ensemble_models:
-        model = models[name]
-        inp_tr = X_train_scaled.values if name in linear_family else X_train.values
-        inp_te = X_test_scaled.values if name in linear_family else X_test.values
-        
-        model.fit(inp_tr, y_train)
-        pred_log = model.predict(inp_te)
-        test_preds_matrix.append(pred_log)
-        
-    test_preds_matrix = np.column_stack(test_preds_matrix)
-    final_test_log = np.dot(test_preds_matrix, best_weights)
-    
-    # convert back from log scale
+    # 5. blend predictions
+    final_test_log = np.dot(test_matrix, best_weights)
     final_prices = np.expm1(final_test_log)
     
     # 6. export submission

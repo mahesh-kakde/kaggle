@@ -15,6 +15,13 @@ def engineer_features(train_path: str, test_path: str):
     test_ids = test_df['Id'].values
     y_train = np.log1p(train_df['SalePrice'].values)
     
+    # rank neighborhoods by training price per square foot
+    train_sf = train_df['TotalBsmtSF'] + train_df['1stFlrSF'] + train_df['2ndFlrSF']
+    neigh_ranks = train_df.groupby('Neighborhood').apply(
+        lambda g: (g['SalePrice'] / (g['TotalBsmtSF'] + g['1stFlrSF'] + g['2ndFlrSF'])).median()
+    ).sort_values()
+    neigh_map = {n: i + 1 for i, n in enumerate(neigh_ranks.index)}
+    
     train_features = train_df.drop(columns=['Id', 'SalePrice'])
     test_features = test_df.drop(columns=['Id'])
     
@@ -74,13 +81,12 @@ def engineer_features(train_path: str, test_path: str):
     df['Fence'] = df['Fence'].map(fence_map).fillna(0).astype(int)
     
     # domain aggregations
+    df['NeighborhoodRank'] = df['Neighborhood'].map(neigh_map).fillna(13.0).astype(float)
     df['TotalSF'] = df['TotalBsmtSF'] + df['1stFlrSF'] + df['2ndFlrSF']
     df['TotalBaths'] = df['FullBath'] + 0.5 * df['HalfBath'] + df['BsmtFullBath'] + 0.5 * df['BsmtHalfBath']
-    df['TotalPorchSF'] = df['OpenPorchSF'] + df['EnclosedPorch'] + df['3SsnPorch'] + df['ScreenPorch']
-    df['HouseAge'] = df['YrSold'].astype(int) - df['YearBuilt'].astype(int)
-    df['HouseAge'] = df['HouseAge'].apply(lambda x: max(0, x))
-    df['RemodelAge'] = df['YrSold'].astype(int) - df['YearRemodAdd'].astype(int)
-    df['RemodelAge'] = df['RemodelAge'].apply(lambda x: max(0, x))
+    df['TotalPorchSF'] = df['OpenPorchSF'] + df['EnclosedPorch'] + df['3SsnPorch'] + df['ScreenPorch'] + df['WoodDeckSF']
+    df['HouseAge'] = (df['YrSold'].astype(int) - df['YearBuilt'].astype(int)).clip(lower=0)
+    df['RemodelAge'] = (df['YrSold'].astype(int) - df['YearRemodAdd'].astype(int)).clip(lower=0)
     df['IsRemodeled'] = (df['YearRemodAdd'] != df['YearBuilt']).astype(int)
     
     df['HasPool'] = (df['PoolArea'] > 0).astype(int)
