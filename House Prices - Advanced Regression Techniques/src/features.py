@@ -89,6 +89,8 @@ def engineer_features(train_path: str, test_path: str):
     df['HasFireplace'] = (df['Fireplaces'] > 0).astype(int)
     df['OverallGrade'] = df['OverallQual'] * df['OverallCond']
     df['QualSF'] = df['OverallQual'] * df['TotalSF']
+    df['QualGrLivArea'] = df['OverallQual'] * df['GrLivArea']
+    df['YrBltAndRemod'] = df['YearBuilt'].astype(int) + df['YearRemodAdd'].astype(int)
     
     # transform skewed continuous columns
     num_cols = df.select_dtypes(include=[np.number]).columns
@@ -99,6 +101,10 @@ def engineer_features(train_path: str, test_path: str):
         
     # one-hot encode nominal categories
     df = pd.get_dummies(df, drop_first=True, dtype=float)
+    
+    # prune near zero variance columns
+    low_var = [col for col in df.columns if df[col].nunique() <= 1 or (df[col].dtype == 'float64' and (df[col] != 0).sum() < 2)]
+    df = df.drop(columns=low_var)
     
     X_train = df.iloc[:n_train].copy().reset_index(drop=True)
     X_test = df.iloc[n_train:].copy().reset_index(drop=True)
