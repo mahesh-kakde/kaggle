@@ -1,7 +1,6 @@
 from catboost import CatBoostClassifier
 from lightgbm import LGBMClassifier
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 
 
@@ -39,13 +38,6 @@ def get_models(random_state=42):
             learning_rate=0.03,
             max_depth=4,
             subsample=0.8,
-            random_state=random_state
-        ),
-        "mlp": MLPClassifier(
-            hidden_layer_sizes=(64, 32),
-            alpha=0.01,
-            max_iter=250,
-            early_stopping=True,
             random_state=random_state
         ),
         "random_forest": RandomForestClassifier(
