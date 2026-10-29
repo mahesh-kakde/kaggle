@@ -13,13 +13,13 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
         ignore_index=True
     )
 
-    # passenger group structure
+    # passenger travel group structure
     full["GroupId"] = full["PassengerId"].str.split("_").str[0]
     full["GroupNum"] = full["PassengerId"].str.split("_").str[1].astype(int)
     full["GroupSize"] = full.groupby("GroupId")["PassengerId"].transform("count")
     full["IsAlone"] = (full["GroupSize"] == 1).astype(int)
 
-    # family surname structure
+    # passenger family surname structure
     full["Surname"] = full["Name"].str.split().str[-1]
     full["FamilySize"] = full.groupby("Surname")["Surname"].transform("count").fillna(1).astype(int)
 
@@ -87,9 +87,26 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
     full["Deck_Side"] = full["CabinDeck"] + "_" + full["CabinSide"]
 
     full["Age"] = full["Age"].fillna(full["Age"].median())
+    full["IsChild"] = (full["Age"] < 13).astype(int)
+    full["IsTeen"] = ((full["Age"] >= 13) & (full["Age"] < 18)).astype(int)
+    full["IsAdult"] = (full["Age"] >= 18).astype(int)
+
     full["CabinNum"] = full["CabinNum"].fillna(full["CabinNum"].median())
+    deck_max = full.groupby("CabinDeck")["CabinNum"].transform("max")
+    full["RelativeDeckNum"] = full["CabinNum"] / (deck_max + 1)
     full["CabinRegion"] = (full["CabinNum"] // 300).astype(int)
     full["Cryo_ZeroSpend"] = ((full["CryoSleep"] == 0) & (full["TotalSpend"] == 0)).astype(int)
+
+    # group contextual features
+    full["Group_Cryo_Ratio"] = full.groupby("GroupId")["CryoSleep"].transform("mean")
+    full["Group_TotalSpend"] = full.groupby("GroupId")["TotalSpend"].transform("sum")
+    full["Group_MeanSpend"] = full.groupby("GroupId")["TotalSpend"].transform("mean")
+    full["Group_SolitarySpend"] = full.groupby("GroupId")["SolitarySpend"].transform("sum")
+    full["Group_HasChild"] = full.groupby("GroupId")["IsChild"].transform("max")
+
+    # spatial and planetary interactions
+    full["Planet_Dest"] = full["HomePlanet"] + "_" + full["Destination"]
+    full["Deck_Side_Region"] = full["CabinDeck"] + "_" + full["CabinSide"] + "_" + full["CabinRegion"].astype(str)
 
     train_mask = full["is_train"] == 1
     test_mask = full["is_train"] == 0
@@ -102,10 +119,13 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
         "ratio_FoodCourt", "ratio_ShoppingMall", "ratio_Spa", "ratio_VRDeck",
         "log_TotalSpend", "SolitarySpend", "CommunalSpend", "log_SolitarySpend",
         "log_CommunalSpend", "SolitaryDiff", "CabinRegion", "Cryo_ZeroSpend",
-        "GroupNum", "GroupSize", "IsAlone", "FamilySize"
+        "GroupNum", "GroupSize", "IsAlone", "FamilySize",
+        "IsChild", "IsTeen", "IsAdult", "RelativeDeckNum",
+        "Group_Cryo_Ratio", "Group_TotalSpend", "Group_MeanSpend", "Group_SolitarySpend", "Group_HasChild",
+        "Planet_Dest", "Deck_Side_Region"
     ]
 
-    cat_cols = ["HomePlanet", "CabinDeck", "CabinSide", "Deck_Side", "Destination"]
+    cat_cols = ["HomePlanet", "CabinDeck", "CabinSide", "Deck_Side", "Destination", "Planet_Dest", "Deck_Side_Region"]
     num_cols = [c for c in feature_cols if c not in cat_cols]
 
     X_train_df = full.loc[train_mask, feature_cols].copy().reset_index(drop=True)
