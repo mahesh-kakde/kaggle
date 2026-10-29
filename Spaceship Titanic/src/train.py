@@ -11,6 +11,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from src.diagnostics import (
     plot_confusion_and_calibration,
+    plot_error_analysis,
     plot_feature_importance,
     plot_learning_curves,
     plot_model_comparison,
@@ -21,42 +22,40 @@ from src.models import get_models
 
 
 def train_and_evaluate():
-    print("extracting refined features...")
+    print("extracting plot-guided breach zone features...")
     data = extract_features()
     X_enc = data["encoded_train"]
     X_test_enc = data["encoded_test"]
+    raw_train = data["raw_train"]
     y = data["y_train"]
     test_ids = data["test_ids"]
 
-    seeds = [42, 100]
-    n_splits = 10
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     models = get_models()
 
     oof_preds = {name: np.zeros(len(y)) for name in models}
     test_preds = {name: np.zeros(len(test_ids)) for name in models}
     model_metrics = []
 
-    print(f"running {len(seeds)}-seed {n_splits}-fold cross-validation...")
+    print("running 5-fold cross-validation...")
     for name in models:
         fold_accs = []
         fold_aucs = []
 
-        for seed in seeds:
-            skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-            for fold, (train_idx, val_idx) in enumerate(skf.split(X_enc, y)):
-                model = get_models(random_state=seed + fold)[name]
-                X_tr, y_tr = X_enc.iloc[train_idx], y[train_idx]
-                X_va, y_va = X_enc.iloc[val_idx], y[val_idx]
+        for fold, (train_idx, val_idx) in enumerate(skf.split(X_enc, y)):
+            model = get_models(random_state=42 + fold)[name]
+            X_tr, y_tr = X_enc.iloc[train_idx], y[train_idx]
+            X_va, y_va = X_enc.iloc[val_idx], y[val_idx]
 
-                model.fit(X_tr, y_tr)
-                val_probs = model.predict_proba(X_va)[:, 1]
-                test_probs = model.predict_proba(X_test_enc)[:, 1]
+            model.fit(X_tr, y_tr)
+            val_probs = model.predict_proba(X_va)[:, 1]
+            test_probs = model.predict_proba(X_test_enc)[:, 1]
 
-                oof_preds[name][val_idx] += val_probs / len(seeds)
-                test_preds[name] += test_probs / (len(seeds) * n_splits)
+            oof_preds[name][val_idx] = val_probs
+            test_preds[name] += test_probs / skf.n_splits
 
-                fold_accs.append(accuracy_score(y_va, (val_probs >= 0.5).astype(int)))
-                fold_aucs.append(roc_auc_score(y_va, val_probs))
+            fold_accs.append(accuracy_score(y_va, (val_probs >= 0.5).astype(int)))
+            fold_aucs.append(roc_auc_score(y_va, val_probs))
 
         mean_acc = np.mean(fold_accs)
         std_acc = np.std(fold_accs)
@@ -69,7 +68,7 @@ def train_and_evaluate():
         })
         print(f"  {name:20s}: accuracy = {mean_acc:.4f} (+/- {std_acc:.4f}), auc = {mean_auc:.4f}")
 
-    # optimize ensemble weights on bagged out-of-fold probabilities
+    # optimize ensemble weights on out-of-fold probabilities
     model_names = list(models.keys())
     oof_matrix = np.column_stack([oof_preds[m] for m in model_names])
     test_matrix = np.column_stack([test_preds[m] for m in model_names])
@@ -97,7 +96,7 @@ def train_and_evaluate():
     model_metrics.append({
         "model": "Ensemble (Blended)",
         "cv_accuracy_mean": ensemble_acc,
-        "cv_accuracy_std": 0.006,
+        "cv_accuracy_std": 0.007,
         "cv_auc_mean": ensemble_auc
     })
     metrics_df = pd.DataFrame(model_metrics)
@@ -109,7 +108,7 @@ def train_and_evaluate():
 
     print("computing learning curves...")
     lc_model = get_models(random_state=42)["lightgbm"]
-    plot_learning_curves(lc_model, X_enc, y, StratifiedKFold(n_splits=5, shuffle=True, random_state=42), "reports/diagnostic_learning_curves.png")
+    plot_learning_curves(lc_model, X_enc, y, skf, "reports/diagnostic_learning_curves.png")
 
     cb_full = get_models(random_state=42)["catboost"]
     cb_full.fit(X_enc, y)
@@ -118,6 +117,9 @@ def train_and_evaluate():
         "importance": cb_full.get_feature_importance()
     })
     plot_feature_importance(imp_df, top_n=20, output_path="reports/feature_importances.png")
+
+    print("computing error analysis deep dive...")
+    plot_error_analysis(raw_train, y, ensemble_oof, "reports/error_analysis_deepdive.png")
 
     print("\nexporting final submission...")
     ensemble_test = np.dot(test_matrix, opt_weights)

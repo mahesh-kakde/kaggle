@@ -71,7 +71,7 @@ def plot_learning_curves(estimator, X, y, cv, output_path="reports/diagnostic_le
     ax.set_xlabel("Training Set Size")
     ax.set_ylabel("Classification Accuracy")
     ax.legend(loc="lower right")
-    ax.set_ylim(0.75, 0.90)
+    ax.set_ylim(0.75, 0.92)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
@@ -154,6 +154,65 @@ def plot_feature_importance(importance_df, top_n=20, output_path="reports/featur
     ax.set_title(f"Top {top_n} Feature Importances")
     ax.set_xlabel("Importance")
     ax.set_ylabel("Feature")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+
+def plot_error_analysis(raw_df, y_true, y_prob, output_path="reports/error_analysis_deepdive.png"):
+    sns.set_theme(style="whitegrid")
+    df = raw_df.copy()
+    df["y_true"] = y_true
+    df["y_pred"] = (y_prob >= 0.5).astype(int)
+    df["prob"] = y_prob
+    df["error"] = (df["y_true"] != df["y_pred"]).astype(int)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    sns.barplot(
+        data=df,
+        x="CryoSleep",
+        y="error",
+        hue="CryoSleep",
+        legend=False,
+        ax=axes[0, 0],
+        palette="Blues_d"
+    )
+    axes[0, 0].set_title("Error Rate by CryoSleep Status")
+    axes[0, 0].set_ylabel("Misclassification Rate")
+
+    sns.barplot(
+        data=df,
+        x="HasSpent",
+        y="error",
+        hue="HasSpent",
+        legend=False,
+        ax=axes[0, 1],
+        palette="Reds_d"
+    )
+    axes[0, 1].set_title("Error Rate by Luxury Spending (0 vs >0)")
+    axes[0, 1].set_ylabel("Misclassification Rate")
+
+    deck_order = ["A", "B", "C", "D", "E", "F", "G", "T", "Missing"]
+    deck_df = df[df["CabinDeck"].isin(deck_order)]
+    sns.barplot(
+        data=deck_df,
+        x="CabinDeck",
+        y="error",
+        hue="CabinDeck",
+        legend=False,
+        order=deck_order,
+        ax=axes[1, 0],
+        palette="viridis"
+    )
+    axes[1, 0].set_title("Error Rate by Cabin Deck")
+    axes[1, 0].set_ylabel("Misclassification Rate")
+
+    sns.histplot(data=df[df["error"] == 1], x="prob", bins=30, ax=axes[1, 1], color="#e74c3c", alpha=0.5, label="Misclassified")
+    sns.histplot(data=df[df["error"] == 0], x="prob", bins=30, ax=axes[1, 1], color="#2ecc71", alpha=0.3, label="Correct")
+    axes[1, 1].set_title("Predicted Probability Distribution (Correct vs Errors)")
+    axes[1, 1].legend()
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)

@@ -3,6 +3,27 @@ import pandas as pd
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
+def assign_cabin_zone(num):
+    if num < 300:
+        return "Z0"
+    elif num < 500:
+        return "Z1"
+    elif num < 700:
+        return "Z2"
+    elif num < 850:
+        return "Z3"
+    elif num < 1150:
+        return "Z4"
+    elif num < 1300:
+        return "Z5"
+    elif num < 1550:
+        return "Z6"
+    elif num < 1720:
+        return "Z7"
+    else:
+        return "Z8"
+
+
 def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
     train = pd.read_csv(train_path)
     test = pd.read_csv(test_path)
@@ -65,16 +86,9 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
     full["TotalSpend"] = full[amenities].sum(axis=1)
     full["HasSpent"] = (full["TotalSpend"] > 0).astype(int)
 
-    for col in amenities:
-        full[f"log_{col}"] = np.log1p(full[col])
-        full[f"ratio_{col}"] = full[col] / (full["TotalSpend"] + 1.0)
-    full["log_TotalSpend"] = np.log1p(full["TotalSpend"])
-
     # solitary vs communal amenity expenditures
     full["SolitarySpend"] = full["RoomService"] + full["Spa"] + full["VRDeck"]
     full["CommunalSpend"] = full["FoodCourt"] + full["ShoppingMall"]
-    full["log_SolitarySpend"] = np.log1p(full["SolitarySpend"])
-    full["log_CommunalSpend"] = np.log1p(full["CommunalSpend"])
     full["SolitaryDiff"] = full["CommunalSpend"] - full["SolitarySpend"]
 
     # impute remaining categoricals and numerics
@@ -87,20 +101,12 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
     full["Deck_Side"] = full["CabinDeck"] + "_" + full["CabinSide"]
 
     full["Age"] = full["Age"].fillna(full["Age"].median())
-    full["IsChild"] = (full["Age"] < 13).astype(int)
-
     full["CabinNum"] = full["CabinNum"].fillna(full["CabinNum"].median())
-    deck_max = full.groupby("CabinDeck")["CabinNum"].transform("max")
-    full["RelativeDeckNum"] = full["CabinNum"] / (deck_max + 1)
-    full["CabinRegion"] = (full["CabinNum"] // 300).astype(int)
+
+    # spatial breach zones along longitudinal axis
+    full["CabinZone"] = full["CabinNum"].apply(assign_cabin_zone)
+    full["Side_Zone"] = full["CabinSide"] + "_" + full["CabinZone"]
     full["Cryo_ZeroSpend"] = ((full["CryoSleep"] == 0) & (full["TotalSpend"] == 0)).astype(int)
-
-    # robust group contextual aggregates
-    full["Group_Cryo_Ratio"] = full.groupby("GroupId")["CryoSleep"].transform("mean")
-    full["Group_TotalSpend"] = full.groupby("GroupId")["TotalSpend"].transform("sum")
-
-    # planetary destination interaction
-    full["Planet_Dest"] = full["HomePlanet"] + "_" + full["Destination"]
 
     train_mask = full["is_train"] == 1
     test_mask = full["is_train"] == 0
@@ -108,16 +114,12 @@ def extract_features(train_path="data/train.csv", test_path="data/test.csv"):
     feature_cols = [
         "HomePlanet", "CryoSleep", "CabinDeck", "CabinNum", "CabinSide", "Deck_Side",
         "Destination", "Age", "VIP", "RoomService", "FoodCourt", "ShoppingMall",
-        "Spa", "VRDeck", "TotalSpend", "HasSpent", "log_RoomService", "log_FoodCourt",
-        "log_ShoppingMall", "log_Spa", "log_VRDeck", "ratio_RoomService",
-        "ratio_FoodCourt", "ratio_ShoppingMall", "ratio_Spa", "ratio_VRDeck",
-        "log_TotalSpend", "SolitarySpend", "CommunalSpend", "log_SolitarySpend",
-        "log_CommunalSpend", "SolitaryDiff", "CabinRegion", "Cryo_ZeroSpend",
-        "GroupNum", "GroupSize", "IsAlone", "FamilySize", "IsChild", "RelativeDeckNum",
-        "Group_Cryo_Ratio", "Group_TotalSpend", "Planet_Dest"
+        "Spa", "VRDeck", "TotalSpend", "HasSpent", "SolitarySpend", "CommunalSpend",
+        "SolitaryDiff", "GroupNum", "GroupSize", "IsAlone", "FamilySize",
+        "Cryo_ZeroSpend", "CabinZone", "Side_Zone"
     ]
 
-    cat_cols = ["HomePlanet", "CabinDeck", "CabinSide", "Deck_Side", "Destination", "Planet_Dest"]
+    cat_cols = ["HomePlanet", "CabinDeck", "CabinSide", "Deck_Side", "Destination", "CabinZone", "Side_Zone"]
     num_cols = [c for c in feature_cols if c not in cat_cols]
 
     X_train_df = full.loc[train_mask, feature_cols].copy().reset_index(drop=True)

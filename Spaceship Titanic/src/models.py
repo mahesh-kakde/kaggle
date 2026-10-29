@@ -7,7 +7,7 @@ from xgboost import XGBClassifier
 def get_models(random_state=42):
     return {
         "catboost": CatBoostClassifier(
-            iterations=750,
+            iterations=800,
             learning_rate=0.03,
             depth=6,
             l2_leaf_reg=4.0,
@@ -17,7 +17,7 @@ def get_models(random_state=42):
         "lightgbm": LGBMClassifier(
             n_estimators=650,
             learning_rate=0.025,
-            num_leaves=31,
+            num_leaves=28,
             max_depth=6,
             subsample=0.8,
             colsample_bytree=0.8,
@@ -34,7 +34,7 @@ def get_models(random_state=42):
             random_state=random_state
         ),
         "gradient_boosting": GradientBoostingClassifier(
-            n_estimators=450,
+            n_estimators=400,
             learning_rate=0.03,
             max_depth=4,
             subsample=0.8,
